@@ -1,39 +1,656 @@
-# sleigh specification file for Skeleton Processor
-#   >> see docs/languages/sleigh.htm or sleigh.pdf for Sleigh syntax
-# Other language modules (see Ghidra/Processors) may provide better examples
-# when creating a new language module.
-
+# sleigh specification file for MC81F0402
+# using MOS 6502 as reference, https://raw.githubusercontent.com/NationalSecurityAgency/ghidra/master/Ghidra/Processors/6502/data/languages/6502.slaspec
 define endian=little;
 define alignment=1;
 
-define space ram     type=ram_space      size=2  default;
+define space RAM     type=ram_space      size=2  default;
+define space ROM     type=rom_space      size=2  default;
 
-define space io      type=ram_space      size=2;
 define space register type=register_space size=1;
 
-define register offset=0x00 size=1 [ F A C B E D L H I R ];
-define register offset=0x00 size=2 [ AF  BC  DE  HL ];
-define register offset=0x20 size=1 [ A_ F_ B_ C_ D_ E_ H_ L_ ]; # Alternate registers
-define register offset=0x20 size=2 [ AF_   BC_   DE_   HL_ ]; # Alternate registers
+define register offset=0x00  size=1 [ A X Y ];
+define register offset=0x20 size=2  [ PC      SP   ];
+define register offset=0x20 size=1  [ PCL PCH S SH ];
+define register offset=0x30 size=1 [ N V G B H I Z C ];	# status bits
+# Flags
+# Negative, Overflow, Select Direct Page, Break flag, Half flag carry, Interrupt, Zero, Carry
 
-define register offset=0x40 size=2 [ _  PC SP IX IY ];
+#TOKENS
 
-define register offset=0x50 size=1 [ rCBAR rCBR rBBR ];
-
-# Define context bits (if defined, size must be multiple of 4-bytes)
-define register offset=0xf0 size=4   contextreg;
-
-define context contextreg
-  assume8bitIOSpace		= (0,0)
+define token opbyte (8)
+   op       = (0,7)
+   upper = (0,2)
+   nibble = (0,4)
+   tcall = (0,5)
+   mode = (3,5)
 ;
 
-# Flag bits (?? manual is very confusing - could be typos!)
-@define C_flag "F[0,1]"		# C: Carry
-@define N_flag "F[1,1]"		# N: Add/Subtract
-@define PV_flag "F[2,1]"	# PV: Parity/Overflow
-@define H_flag "F[4,1]"		# H: Half Carry
-@define Z_flag "F[6,1]"		# Z: Zero
-@define S_flag "F[7,1]"		# S: Sign
+define token data8 (8)
+   imm8		= (0,7)
+   rel		= (0,7) signed
+;
 
-# Include contents of skel.sinc file
-@include "skel.sinc"
+define token data (16)
+	imm16 = (0,15)
+;
+
+macro popSR() {
+	local ccr = *:1 SP;
+	N = ccr[7,1];
+	V = ccr[6,1];
+	G = ccr[5,1];
+	B = ccr[4,1];
+	H = ccr[3,1];
+	I = ccr[2,1];
+	Z = ccr[1,1];
+	C = ccr[0,1];
+}
+
+macro pushSR() {
+	local ccr:1 = 0xff;
+	ccr[7,1] = N;
+	ccr[6,1] = V;
+	ccr[5,1] = G;
+	ccr[4,1] = B;
+	ccr[3,1] = H;
+	ccr[2,1] = I;
+	ccr[1,1] = Z;
+	ccr[0,1] = C;
+	*:1 (SP) = ccr;
+	SP = SP -1;
+}
+
+macro resultFlags(value) {
+	Z = (value == 0);
+	N = (value s< 0);
+}
+
+macro subtraction_flags1(register, operand, result) { # TODO needs H
+	local complement_register = ~register;
+	
+	V = ( ((register & ~operand & ~result) | (complement_register & operand & result)) & 0b10000000 ) != 0;
+	N = (result s< 0);
+	Z = (result == 0);
+	C = ( ((complement_register & operand) | (operand & result) | (result & complement_register)) & 0b10000000 ) != 0;
+}
+
+macro updateHalfCarry(A, op1) { # Used to update H flag
+	local hA = 0x0F & A;
+	local hop1 = 0x0F & op1;
+
+	hA = hA + hop1
+	H = hA[5,1]
+}
+
+################################################################
+# Psuedo Instructions
+################################################################
+
+# define pcodeop readIRQ;
+
+################################################################
+REL: reloc		is rel	[ reloc = inst_next + rel; ] { export *:2 reloc; } 
+
+# Immediate
+OP1: "#"imm8    is mode=4; imm8			{ tmp:1 = imm8; export tmp; }
+
+# dp # TODO Add reference to DP
+OP1: [rpr + imm8]       is mode=5 | mode = 12; imm8			{ export *:1 imm8; }
+
+# dp + X
+OP1:[rpr + imm8 + X]     is mode=6 & X; imm8		{ tmp:2 = zext(imm8 + X); export *:1 tmp; }
+
+# Absolute
+OP1: imm16      is mode=7; imm16			{ export *:1 imm16; }
+
+# Absolute + Y
+OP1: [imm16 + Y]    is mode=15 & Y; imm16		{ tmp:2 = imm16 + zext(Y); export *:1 tmp; }
+
+# [dp + X]
+OP1: [rpr + imm8 + X]    is mode=16 & X; imm8		{ tmp:2 = imm8 + zext(X); addr:2 = *:2 tmp; export *:1 addr; }
+
+# [dp] + Y
+OP1: [rpr + imm8] + Y   is mode=17 & Y; imm8		{ addr:2 = zext(imm8); tmp:2 = *:2 addr; export *:1 (tmp + zext(Y)); }
+
+# {X}
+OP1: [rpr + X]   ismode=14 & X		{ addr:2 = zext(imm8); export *:1 addr; }
+
+# clever way to write it, move memory access out of instruction. Then dont need 8 different instructions of same thing, just need 1
+# Instructions
+
+# alot of the opcodes are good, just need to update when they are called 
+
+OP2 8, 9
+
+OP3 14
+
+# flags that need to be updated # Overflow, Half flag carry, Carry
+:ADC A, OP1     is (upper = 0) ... & OP1 # I believe that is how to display ADC A, [Memory access]
+{
+	local op1 = OP1;
+	local tmpC = C;
+	
+	updateHalfCarry(A, op1)
+	C = carry(A, op1); # not sure where carry() is
+	
+	A = A + op1 + tmpC;
+
+	resultFlags(A);
+	V = C;
+}
+
+:AND OP1     is (upper = 5) ... & OP1
+{ 
+	A = A & OP1; 
+	resultFlags(A);
+}
+
+:ASL OP2     is (upper = 0) ... & OP2
+{
+	local tmp = OP2;
+	C = tmp >> 7;
+	tmp = tmp << 1;
+	OP2 = tmp;
+	resultFlags(tmp);	
+}
+
+:CMP OP1     is (upper = 2) ... & OP1
+{ 
+	local op1 = OP1;
+	local tmp = A - op1;
+	resultFlags(tmp);
+	C = (A < op1);
+}
+
+:BCC  REL			is op=0x50; REL
+{
+	if (C == 0) goto REL;
+}
+
+:BCS  REL			is op=0xD0; REL
+{
+	if (C) goto REL;
+}
+
+:BEQ  REL			is op=0xF0; REL
+{
+	if (Z) goto REL;
+}
+
+:BMI  REL			is op=0x90; REL
+{
+	if (N) goto REL;
+}
+
+:BNE  REL			is op=0x70; REL
+{
+	if (Z == 0) goto REL;
+}
+
+:BPL  REL			is op=0x10; REL
+{
+	if (N == 0) goto REL;
+}
+
+:BRA  REL			is op=0x2F; REL
+{
+	goto REL;
+}
+
+:BVC  REL			is op=0x30; REL
+{
+	if (V == 0) goto REL;
+}
+
+:BVS  REL			is op=0xB0; REL
+{
+	if (V) goto REL;
+}
+
+:DI     is op=0x60
+{
+	I = 0;
+}
+
+:EI     is op=0xE0
+{
+	I = 1;
+}
+
+:NOP     is op=0xFF
+{
+}
+
+:POPA       is op=0x0D
+{
+	tmp:1 = *:1 SP;
+	SP = SP+1;
+	
+	A = tmp;
+}
+
+:POPX       is op=0x2D
+{
+	tmp:1 = *:1 SP;
+	SP = SP+1;
+	
+	X = tmp;
+}
+
+:POPY       is op=0x4D
+{
+	tmp:1 = *:1 SP;
+	SP = SP+1;
+	
+	Y = tmp;
+}
+
+:POPPSW       is op=0x6D
+{
+	tmp:1 = *:1 SP;
+	SP = SP+1;
+	
+	# TODO, restore PSW values
+}
+
+:PUSHA     is op=0x0E
+{
+	*:1 (SP) = A;
+	SP = SP - 1;
+}
+
+:PUSHX     is op=0x2E
+{
+	*:1 (SP) = X;
+	SP = SP - 1;
+}
+
+:PUSHY     is op=0x4E
+{
+	*:1 (SP) = Y;
+	SP = SP - 1;
+}
+
+:PUSHPSW     is op=0x6E
+{
+	# TODO, get PSW values
+
+	*:1 (SP) = tmp;
+	SP = SP - 1;
+}
+
+:TAX     is op=0xE8
+{
+	X = A;
+}
+
+:TAY     is op=0x9F
+{
+	Y = A;
+}
+
+:TSPX     is op=0xAE
+{
+	X = S;
+}
+
+:TXA     is op=0xC8
+{
+	A = X;
+}
+
+:TXS     is op=0x8E
+{
+	S = X;
+}
+
+:TYA     is op=0xBF
+{
+	A = Y;
+}
+
+:XAX     is op=0xEE
+{
+	tmp = A;
+	A = X;
+	X = A;
+}
+
+:XAY     is op=0xDE
+{
+	tmp = A;
+	A = Y;
+	Y = A;
+}
+
+:XYX     is op=0xFE
+{
+	tmp = X;
+	X = Y;
+	Y = X;
+}
+
+:CLRC     is op=0x20
+{
+	C = 0;
+}
+
+:INC OP2     is (upper = 4) ... & OP2
+{
+	local tmp = OP2 + 1;
+	OP2 = tmp;
+	resultFlags(tmp);
+}
+
+:INY     is op=0x9E
+{
+	Y = Y + 1;
+	resultFlags(Y);
+}
+
+:INX     is op=0x8F
+{
+	X = X + 1;
+	resultFlags(X);
+}
+
+:DEC OP2     is (upper = 5) ... & OP2
+{
+	local tmp = OP2 - 1;
+	OP2 = tmp;
+	resultFlags(tmp);
+}
+
+:DECX     is op=0xAF
+{
+	X = X - 1;
+	resultFlags(X);
+}
+
+
+:DECY     is op=0xBE
+{
+	Y = Y -1;
+	resultFlags(Y);
+}
+
+:DIV     is op=0x9B
+{
+	# YA/X, Q:A, R:Y        Should update flags NVHZ 
+	local ya:2 = zext(Y) + A
+	A = ya / X;
+	Y = ya % X;
+	resultFlags(A); # I think its based on A TODO
+}
+
+:EOR OP1     is (upper = 5) ... & OP1
+{ 
+	local op1 = OP1;
+	A = A ^ op1;
+	resultFlags(A);
+}
+
+:LSR OP2     is (upper = 2) ... & OP2
+{
+	local tmp = OP2;
+	C = tmp & 1;
+	tmp = tmp >> 1;
+	OP2 = tmp;
+	Z = (tmp == 0);
+	N = 0;	
+}
+
+:MUL     is op=0x5B
+{
+	# YA = Y * A        Should update flags NZ 
+	local ya:2 = Y * A
+	A = ya:1 2; # TODO may be ya[2]
+	Y = ya:1 1;
+	resultFlags(A); # I think its based on A TODO
+}
+
+:OR  OP1    is  (upper = 3) ... & OP1
+{
+	A = A | OP1; 
+	resultFlags(A);
+}
+
+:ROL OP2     is (upper = 1) ... & OP2
+{
+	local tmpC = C;
+	local op2 = OP2;
+	C = op2 >> 7;
+	local result = op2 << 1;
+	result = result | tmpC;
+	OP2 = result;
+	resultFlags(result);	
+}
+
+:ROR OP2     is (upper = 3) ... & OP2
+{
+	local tmpC = C << 7;
+	local tmp = OP2;
+	C = tmp & 1;
+	tmp = tmp >> 1;
+	tmp = tmp | tmpC;
+	OP2 = tmp;
+	resultFlags(tmp);	
+}
+
+:SBC OP1     is (upper = 1) ... & OP1
+{
+	local op1 = OP1;
+	local result = A - op1 - C;
+	
+	subtraction_flags1(A, op1, result);
+	A = result;	
+}
+
+
+:TST OP1     is (op = 0x4C) ... & OP1
+{
+	local op1 = OP1;
+	resultFlags(op1);
+}
+
+:XCN     is (op = 0xCE)
+{
+	local tmp = A;
+	A = (A >> 4) | (tmp << 4);
+	resultFlags(A);
+}
+
+
+:LDA OP1     is (upper = 6) ... & OP1
+{
+	A = OP1;
+	resultFlags(A);
+}
+
+
+:LDA [rpr + X], X++    is (op=0xDB )
+{
+	local addr:2 = zext(imm8); # TODO reference DP
+	A = *:1 addr; 
+	X = X + 1
+	resultFlags(A);
+}
+
+
+# TODO update requirement
+
+:CPX OP2     is (op=0xE0 | op=0xE4 | op=0xEC) ... & OP2 
+{
+	local op1 = OP2;
+	local tmp = X - op1;
+	resultFlags(tmp);
+	C = (A < op1);
+}
+
+:CPY OP2     is (op=0xC0 | op=0xC4 | op=0xCC) ... & OP2
+{
+	local op1 = OP2;
+	local tmp = Y - op1;
+	resultFlags(tmp);
+	C = (A < op1);
+}
+
+# TODO CALL, CBNE, DBNE, JMP, PCALL, TCALL, BRK, RET, RETI, STOP, XMA, 16-bit stuff, BIT stuff, COM
+# Ensure flag sets
+# old 
+
+
+
+
+:LDY OP2     is (op=0xA0 | op=0xA4 | op=0xAC | op=0xB4 | op=0xBC) ... & OP2
+{
+	Y = OP2;
+	resultFlags(Y);
+}
+
+:LDX OP2LD     is (op=0xA2 | op=0xA6 | op=0xAE | op=0xB6 | op=0xBE) ... & OP2LD
+{
+	X = OP2LD;
+	resultFlags(X);
+}
+
+
+
+
+
+
+
+
+
+
+:BIT OP2     is (op=0x24 | op=0x2C) ... & OP2
+{
+	local value = A & OP2;
+	resultFlags(value);
+}
+
+
+
+
+
+:BRK   is op=0x00
+{
+	goto inst_start;
+}
+
+
+
+
+
+:CLD     is op=0xD8
+{
+	D = 0;
+}
+
+
+
+:CLV     is op=0xB8
+{
+	V = 0;
+}
+
+
+
+
+
+
+
+
+:JMP ADDR16     is (op=0x4C); ADDR16
+{
+	goto ADDR16;
+}
+
+:JMP ADDRI     is (op=0x6c); ADDRI
+{
+	goto [ADDRI];
+}
+
+:JSR   ADDR16    is op=0x20; ADDR16
+{
+	*:2 (SP-1) = inst_next;
+	SP=SP-2; 
+	call ADDR16;
+}
+
+
+
+
+
+
+
+
+:PHP     is op=0x8
+{
+	pushSR();
+}
+
+:PLP     is op=0x28
+{
+	popSR();
+}
+
+
+
+:PLA     is op=0x68
+{
+	SP = SP + 1;
+	A = *:1 (SP);
+}
+
+
+:RTI      is op=0x40
+{
+	popSR();
+	SP = SP+1;
+	
+    SP = SP+1;
+	tmp:2 = *:2 SP;
+	SP = SP+1;
+	
+	return [tmp];
+}
+
+
+
+
+
+:SEC     is op=0x38
+{
+	C = 1;
+}
+
+:SED     is op=0xF8
+{
+	D = 1;	
+}
+
+:SEI     is op=0x78
+{
+	I = 1;
+}
+
+:STA OP1     is (cc=1 & aaa=4) ... & OP1
+{
+	OP1 = A;
+	resultFlags(A);
+}
+
+:STX OP2ST     is (op=0x86 | op=0x8E | op=0x96) ... & OP2ST
+{
+	OP2ST = X;
+	resultFlags(X);
+}
+
+:STY OP2     is (op=0x84 | op=0x8C | op=0x94) ... & OP2
+{
+	OP2 = Y;
+	resultFlags(Y);
+}
+
+

@@ -32,23 +32,40 @@ import ghidra.util.task.TaskMonitor;
 /**
  * TODO: Provide class-level documentation that describes what this loader does.
  */
-public class mc81f0204Loader extends AbstractLibrarySupportLoader {
-
+public class mc81f4204Loader extends AbstractLibrarySupportLoader {
+	public final static String MC81F4204_MAGIC = new String(new byte[] {0x60, 0x1e, 0x00});
+	
 	@Override
 	public String getName() {
 
 		// TODO: Name the loader.  This name must match the name of the loader in the .opinion 
 		// files.
 
-		return "My loader";
+		return "MC81F4204";
 	}
 
 	@Override
 	public Collection<LoadSpec> findSupportedLoadSpecs(ByteProvider provider) throws IOException {
 		List<LoadSpec> loadSpecs = new ArrayList<>();
+		// Can look at https://github.com/andr3colonel/ghidra_wasm/blob/master/src/main/java/wasm/WasmLoader.java 
+		// for more complex loading and reading of different sections. 
+		BinaryReader reader = new BinaryReader(provider, true);
+		
+		magic = reader.readNextByteArray( 3 );
 
-		// TODO: Examine the bytes in 'provider' to determine if this loader can load it.  If it 
-		// can load it, return the appropriate load specifications.
+		if (MC81F4204_MAGIC.equals(new String(magic))) {
+			List<QueryResult> queries = QueryOpinionService.query(getName(), WasmConstants.MACHINE, null);
+			for (QueryResult result : queries) {
+				loadSpecs.add(new LoadSpec(this, 0, result));
+				loadSpecs.add(new LoadSpec(this, 0, result)); // why is this repeated? 
+				loadSpecs.add(new LoadSpec(this, 0, result));
+				loadSpecs.add(new LoadSpec(this, 0, result));
+				loadSpecs.add(new LoadSpec(this, 0, result));
+			}
+		} else {
+			throw new IOException("not a MC81F4204 file.");
+		}
+		
 
 		return loadSpecs;
 	}
@@ -68,7 +85,7 @@ public class mc81f0204Loader extends AbstractLibrarySupportLoader {
 			super.getDefaultOptions(provider, loadSpec, domainObject, isLoadIntoProgram);
 
 		// TODO: If this loader has custom options, add them to 'list'
-		list.add(new Option("Option name goes here", "Default option value goes here"));
+		// list.add(new Option("Option name goes here", "Default option value goes here"));
 
 		return list;
 	}

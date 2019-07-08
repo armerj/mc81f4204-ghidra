@@ -1,23 +1,92 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- See Relax specification: Ghidra/Framework/SoftwareModeling/data/languages/processor_spec.rxg -->
-
 <processor_spec>
   <programcounter register="PC"/>
-  <register_data>
-    <register name="AF_" group="Alt"/>
-    <register name="BC_" group="Alt"/>
-    <register name="DE_" group="Alt"/>
-    <register name="HL_" group="Alt"/>
-  </register_data>
+  
+  <volatile outputop="write" inputop="read">
+    <range space="RAM" first="0x0" last="0x010F"/>
+    <range space="ROM" first="0xF000" last="0xFFFF"/>
+  </volatile>
+  
   <default_symbols>
-    <symbol name="RST0" address="ram:0000" entry="true"/>
-    <symbol name="RST1" address="ram:0008" entry="false"/>
-    <symbol name="RST2" address="ram:0010" entry="false"/>
-    <symbol name="RST3" address="ram:0018" entry="false"/>
-    <symbol name="RST4" address="ram:0020" entry="false"/>
-    <symbol name="RST5" address="ram:0028" entry="false"/>
-    <symbol name="RST6" address="ram:0030" entry="false"/>
-    <symbol name="RST7" address="ram:0038" entry="false"/>
+    <symbol name="T0SCR" address="B0"/>
+    <symbol name="T0DR" address="B1"/>
+    <symbol name="T0CR" address="B2"/>
+    <symbol name="T1SCR" address="B3"/>
+    <symbol name="T1DR" address="B4"/>
+    <symbol name="T1CR" address="B5"/>
+    <symbol name="T2SCR" address="B6"/>
+    <symbol name="T2DR" address="B7"/>
+    <symbol name="T2CR" address="B8"/>
+    <symbol name="ADMR" address="BD"/>
+    <symbol name="ADDRH" address="BE"/>
+    <symbol name="ADDRL" address="BF"/>
+    <symbol name="R0" address="C0"/>
+    <symbol name="R1" address="C1"/>
+    <symbol name="R3" address="C3"/>
+    <symbol name="R0CONH" address="C6"/>
+    <symbol name="R0CONM" address="C7"/>
+    <symbol name="R0CONL" address="C8"/>
+    <symbol name="PUR0" address="C9"/>
+    <symbol name="EINT0H" address="CA"/>
+    <symbol name="EINT0L" address="CB"/>
+    <symbol name="ERQ0" address="CC"/>
+    <symbol name="EINTF" address="CD"/>                                            
+    <symbol name="PWMSCR" address="CE"/>
+    <symbol name="PWMPDR" address="CF"/>
+    <symbol name="PWM2DR" address="D0"/>
+    <symbol name="PWM3DR" address="D1"/>
+    <symbol name="R1CONH" address="D3"/>
+    <symbol name="R1CONM" address="D4"/>
+    <symbol name="R1CONL" address="D5"/>
+    <symbol name="PUR1" address="D6"/>
+    <symbol name="EINT1" address="D7"/>
+    <symbol name="ERQ1" address="D8"/>
+    <symbol name="R3CONH" address="DC"/>
+    <symbol name="R3CONL" address="DD"/>
+    <symbol name="RPR" address="E1"/>
+    <symbol name="BUZR" address="E5"/>
+    <symbol name="BUPDR" address="E6"/>
+    <symbol name="SIOCR" address="E7"/>
+    <symbol name="SIODAT" address="E8"/>
+    <symbol name="SIOPS" address="E9"/>
+    <symbol name="IENH" address="EA"/>
+    <symbol name="IENL" address="EB"/>
+    <symbol name="IRQH" address="EC"/>
+    <symbol name="IRQL" address="ED"/>
+    <symbol name="INTFH" address="EE"/>
+    <symbol name="BTCR" address="F1"/>
+    <symbol name="CKCTLR" address="F2"/>
+    <symbol name="PORC" address="F3"/>
+    <symbol name="WDTR" address="F4"/>
+    <symbol name="SSCR" address="F5"/>
+    <symbol name="WDTSR" address="F6"/>
+    <symbol name="WDTCR" address="F7"/>
+
+    <symbol name="RESET_VECTOR_START_ADDRESS" address="FFFE" entry="true" type="code_ptr"/>
+    <symbol name="IRQ_VECTOR_START_ADDRESS" address="FFE0" entry="true" type="code_ptr"/>
+    <symbol name="PCALL_START_ADDRESS" address="FF00" type="code_ptr"/>
+    <symbol name="TCALL_0_ADDRESS" address="FFDE" type="code_ptr"/>
+    <symbol name="TCALL_1_ADDRESS" address="FFDC" type="code_ptr"/>
+    <symbol name="TCALL_2_ADDRESS" address="FFDA" type="code_ptr"/>
+    <symbol name="TCALL_3_ADDRESS" address="FFD8" type="code_ptr"/>
+    <symbol name="TCALL_4_ADDRESS" address="FFD6" type="code_ptr"/>
+    <symbol name="TCALL_5_ADDRESS" address="FFD4" type="code_ptr"/>
+    <symbol name="TCALL_6_ADDRESS" address="FFD2" type="code_ptr"/>
+    <symbol name="TCALL_7_ADDRESS" address="FFD0" type="code_ptr"/>
+    <symbol name="TCALL_8_ADDRESS" address="FFCE" type="code_ptr"/>
+    <symbol name="TCALL_9_ADDRESS" address="FFCC" type="code_ptr"/>
+    <symbol name="TCALL_10_ADDRESS" address="FFCA" type="code_ptr"/>
+    <symbol name="TCALL_11_ADDRESS" address="FFC8" type="code_ptr"/>
+    <symbol name="TCALL_12_ADDRESS" address="FFC6" type="code_ptr"/>
+    <symbol name="TCALL_13_ADDRESS" address="FFC4" type="code_ptr"/>
+    <symbol name="TCALL_14_ADDRESS" address="FFC2" type="code_ptr"/>
+    <symbol name="TCALL_15_ADDRESS" address="FFC0" type="code_ptr"/>
   </default_symbols>
+  
+  <default_memory_blocks>
+    <memory_block name="LOW_RAM" start_address="0" length="0xAF" initialized="false"/>
+    <memory_block name="SPECIAL_PURPOSE_REGISTERS" start_address="0xB0" length="0x4F" initialized="false"/>
+    <memory_block name="HIGH_RAM" start_address="0x100" length="0xF" initialized="false"/>
+  </default_memory_blocks>
 </processor_spec>
